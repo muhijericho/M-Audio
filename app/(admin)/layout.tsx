@@ -1,26 +1,29 @@
-// app/admin/layout.tsx
+"use client";
 import AdminSidebar from "@/app/components/AdminSidebar";
+import { usePathname } from "next/navigation";
 import React, { ReactNode } from "react";
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const isLoginPage = pathname === "/admin/login";
+
+  if (isLoginPage) {
+    return <>{children}</>;
+  }
+
   return (
-    <div style={layoutStyle}>
+    <div style={{ display: "flex", minHeight: "100vh" }}>
       <AdminSidebar />
-      <main style={mainContentStyle}>{children}</main>
+      <main style={{
+        flexGrow: 1,
+        backgroundColor: "#4f555d",
+        padding: "2rem 3rem",
+        marginLeft: "240px",
+        minHeight: "100vh",
+        overflowY: "auto",
+      }}>
+        {children}
+      </main>
     </div>
   );
 }
-
-const layoutStyle: React.CSSProperties = {
-  display: "flex",
-  minHeight: "100vh",
-};
-
-const mainContentStyle: React.CSSProperties = {
-  flexGrow: 1,
-  backgroundColor: "#f4f6f9",
-  padding: "2rem 3rem",
-  marginLeft: "240px", // matches the fixed sidebar width
-  minHeight: "100vh",
-  overflowY: "auto",
-};

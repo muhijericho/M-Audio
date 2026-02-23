@@ -161,10 +161,26 @@ export default function Navbar() {
         .m-nav-hamburger.open span:nth-child(2) { opacity: 0; }
         .m-nav-hamburger.open span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
 
+        /* Mobile menu clip wrapper — prevents the sliding menu from
+           appearing above the navbar when it's in its hidden (off-screen) state */
+        .m-nav-mobile-clip {
+          position: fixed;
+          top: 70px;
+          left: 0;
+          right: 0;
+          overflow: hidden;        /* <-- this clips the translateY(-110%) bleed */
+          z-index: 998;
+          /* Expand height only when open so it doesn't block page clicks when closed */
+          max-height: 0;
+          transition: max-height 0.35s cubic-bezier(.4,0,.2,1);
+        }
+
+        .m-nav-mobile-clip.open {
+          max-height: 400px; /* tall enough for any menu content */
+        }
+
         /* Mobile menu */
         .m-nav-mobile {
-          position: fixed;
-          top: 70px; left: 0; right: 0;
           background: rgba(5, 5, 10, 0.97);
           backdrop-filter: blur(20px);
           -webkit-backdrop-filter: blur(20px);
@@ -175,10 +191,11 @@ export default function Navbar() {
           border-bottom: 1px solid rgba(255,80,0,0.15);
           transform: translateY(-110%);
           transition: transform 0.35s cubic-bezier(.4,0,.2,1);
-          z-index: 998;
         }
 
-        .m-nav-mobile.open { transform: translateY(0); }
+        .m-nav-mobile-clip.open .m-nav-mobile {
+          transform: translateY(0);
+        }
 
         .m-nav-mobile button {
           background: none;
@@ -230,7 +247,7 @@ export default function Navbar() {
         </ul>
 
         {/* Login button */}
-        <Link href="/admin/dashboard" className="m-nav-login">
+        <Link href="/login" className="m-nav-login">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
             <polyline points="10 17 15 12 10 7" />
@@ -249,22 +266,24 @@ export default function Navbar() {
         </button>
       </header>
 
-      {/* Mobile dropdown */}
-      <nav className={`m-nav-mobile${menuOpen ? " open" : ""}`}>
-        {navLinks.map((link) => (
-          <button key={link.id} onClick={() => scrollTo(link.id)}>
-            {link.label}
-          </button>
-        ))}
-        <Link
-          href="/admin/dashboard"
-          className="m-nav-login"
-          style={{ marginTop: "0.5rem", justifyContent: "center" }}
-          onClick={() => setMenuOpen(false)}
-        >
-          Login
-        </Link>
-      </nav>
+      {/* Mobile dropdown — wrapped in clip container to prevent above-nav bleed */}
+      <div className={`m-nav-mobile-clip${menuOpen ? " open" : ""}`}>
+        <nav className="m-nav-mobile">
+          {navLinks.map((link) => (
+            <button key={link.id} onClick={() => scrollTo(link.id)}>
+              {link.label}
+            </button>
+          ))}
+          <Link
+            href="/login"
+            className="m-nav-login"
+            style={{ marginTop: "0.5rem", justifyContent: "center" }}
+            onClick={() => setMenuOpen(false)}
+          >
+            Login
+          </Link>
+        </nav>
+      </div>
     </>
   );
 }

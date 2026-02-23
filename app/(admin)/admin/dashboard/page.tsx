@@ -1,635 +1,514 @@
 "use client";
-// app/admin/dashboard/page.tsx
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
-interface User {
+type Booking = {
   id: number;
   name: string;
-  username: string;
   email: string;
   phone: string;
-  website: string;
-  company: { name: string };
-  address: { city: string; street: string };
-}
+  eventType: string;
+  eventDate: string;
+  message: string;
+  status: string;
+  createdAt: string;
+};
 
-const StatCard = ({
-  label,
-  value,
-  sub,
-  icon,
-  color,
-  delay,
-}: {
-  label: string;
-  value: string | number;
-  sub: string;
-  icon: React.ReactNode;
-  color: string;
-  delay: string;
-}) => (
-  <div className="stat-card" style={{ animationDelay: delay }}>
-    <div className="stat-icon" style={{ background: color }}>
-      {icon}
-    </div>
-    <div className="stat-body">
-      <span className="stat-label">{label}</span>
-      <span className="stat-value">{value}</span>
-      <span className="stat-sub">{sub}</span>
-    </div>
-    <div className="stat-glow" style={{ background: color }} />
-  </div>
-);
+const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
+  pending:   { bg: "rgba(255,180,0,0.12)",  color: "#ffb400" },
+  confirmed: { bg: "rgba(0,200,100,0.12)",  color: "#00c864" },
+  cancelled: { bg: "rgba(255,45,85,0.12)",  color: "#ff2d55" },
+};
 
 export default function Dashboard() {
-  const [users, setUsers] = useState<User[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [error, setError] = useState("");
+  const [bookings, setBookings]     = useState<Booking[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [actionLoading, setActionLoading] = useState<number | null>(null);
 
-  useEffect(() => {
-    fetch("https://jsonplaceholder.typicode.com/users")
-      .then((r) => r.json())
-      .then((data) => {
-        setUsers(data);
-        setLoading(false);
-      })
-      .catch(() => {
-        setError("Failed to load users.");
-        setLoading(false);
-      });
-  }, []);
+  const fetchBookings = () => {
+    fetch("/api/booking")
+      .then(r => r.ok ? r.json() : [])
+      .then(data => { setBookings(Array.isArray(data) ? data : []); setLoading(false); })
+      .catch(() => { setBookings([]); setLoading(false); });
+  };
 
-  const filtered = users.filter(
-    (u) =>
-      u.name.toLowerCase().includes(search.toLowerCase()) ||
-      u.email.toLowerCase().includes(search.toLowerCase()) ||
-      u.company.name.toLowerCase().includes(search.toLowerCase())
+  useEffect(() => { fetchBookings(); }, []);
+
+  const updateStatus = async (id: number, status: string) => {
+    setActionLoading(id);
+    await fetch(`/api/booking/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    fetchBookings();
+    setActionLoading(null);
+  };
+
+  const deleteBooking = async (id: number) => {
+    if (!confirm("Delete this booking?")) return;
+    setActionLoading(id);
+    await fetch(`/api/booking/${id}`, { method: "DELETE" });
+    fetchBookings();
+    setActionLoading(null);
+  };
+
+  // Calendar logic
+  const bookedDates = new Set(
+    bookings
+      .filter(b => b.status !== "cancelled")
+      .map(b => b.eventDate)
   );
 
-  const cities = [...new Set(users.map((u) => u.address.city))].length;
+  const year  = currentMonth.getFullYear();
+  const month = currentMonth.getMonth();
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const monthName = currentMonth.toLocaleString("default", { month: "long", year: "numeric" });
+
+  const calendarCells = [];
+  for (let i = 0; i < firstDay; i++) calendarCells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) calendarCells.push(d);
+
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const isBooked = (d: number) => {
+    const str = `${year}-${pad(month + 1)}-${pad(d)}`;
+    return bookedDates.has(str);
+  };
+  const isToday = (d: number) => {
+    const t = new Date();
+    return t.getFullYear() === year && t.getMonth() === month && t.getDate() === d;
+  };
 
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:ital,wght@0,400;0,500;1,400&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;500;600&display=swap');
 
-        .dash-root {
-          font-family: 'DM Sans', sans-serif;
-          min-height: 100vh;
-          background: #f0f2f7;
-          padding: 2.5rem 2.5rem 3rem;
-          position: relative;
-        }
-
-        .dash-root::before {
-          content: '';
-          position: fixed;
-          top: -200px;
-          right: -100px;
-          width: 600px;
-          height: 600px;
-          background: radial-gradient(circle, rgba(99,102,241,0.07) 0%, transparent 70%);
-          pointer-events: none;
-          z-index: 0;
-        }
-
-        .dash-header {
-          display: flex;
-          align-items: flex-end;
-          justify-content: space-between;
-          margin-bottom: 2.25rem;
-          position: relative;
-          z-index: 1;
-          flex-wrap: wrap;
-          gap: 1rem;
-        }
+        .dash { font-family: 'Barlow', sans-serif; color: #fff; }
 
         .dash-title {
-          font-family: 'Syne', sans-serif;
+          font-family: 'Bebas Neue', sans-serif;
           font-size: 2rem;
-          font-weight: 800;
-          color: #0f172a;
-          line-height: 1;
-          margin: 0;
+          letter-spacing: 0.06em;
+          margin-bottom: 2rem;
+          color: #fff;
         }
+        .dash-title span { color: #ff5000; }
 
-        .dash-title span {
-          color: #6366f1;
-        }
-
-        .dash-subtitle {
-          margin: 0.35rem 0 0;
-          color: #64748b;
-          font-size: 0.88rem;
-        }
-
-        .dash-date {
-          font-size: 0.8rem;
-          color: #94a3b8;
-          font-style: italic;
-        }
-
-        /* Stat cards */
-        .stats-grid {
+        /* Stats row */
+        .dash-stats {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-          gap: 1.25rem;
-          margin-bottom: 2.25rem;
-          position: relative;
-          z-index: 1;
-        }
-
-        .stat-card {
-          background: #ffffff;
-          border-radius: 16px;
-          padding: 1.4rem 1.5rem;
-          display: flex;
-          align-items: flex-start;
+          grid-template-columns: repeat(3, 1fr);
           gap: 1rem;
-          box-shadow: 0 2px 12px rgba(0,0,0,0.06);
-          position: relative;
-          overflow: hidden;
-          animation: fadeUp 0.5s ease both;
-          transition: transform 0.2s ease, box-shadow 0.2s ease;
+          margin-bottom: 2rem;
         }
-
-        .stat-card:hover {
-          transform: translateY(-3px);
-          box-shadow: 0 8px 24px rgba(0,0,0,0.1);
-        }
-
-        .stat-glow {
-          position: absolute;
-          bottom: -30px;
-          right: -30px;
-          width: 100px;
-          height: 100px;
-          border-radius: 50%;
-          opacity: 0.08;
-          filter: blur(20px);
-        }
-
-        .stat-icon {
-          width: 44px;
-          height: 44px;
+        .dash-stat {
+          background: #0f0f1a;
+          border: 1px solid rgba(255,255,255,0.07);
           border-radius: 12px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
+          padding: 1.25rem 1.5rem;
         }
-
-        .stat-body {
-          display: flex;
-          flex-direction: column;
-          gap: 0.15rem;
-        }
-
-        .stat-label {
-          font-size: 0.72rem;
-          font-weight: 500;
-          letter-spacing: 0.08em;
+        .dash-stat-label {
+          font-size: 0.7rem;
+          font-weight: 600;
+          letter-spacing: 0.12em;
           text-transform: uppercase;
-          color: #94a3b8;
+          color: rgba(255,255,255,0.35);
+          margin-bottom: 0.4rem;
+        }
+        .dash-stat-value {
+          font-family: 'Bebas Neue', sans-serif;
+          font-size: 2rem;
+          letter-spacing: 0.04em;
+          color: #fff;
+        }
+        .dash-stat-value.orange { color: #ff5000; }
+        .dash-stat-value.green  { color: #00c864; }
+        .dash-stat-value.red    { color: #ff2d55; }
+
+        /* Two-col layout */
+        .dash-grid {
+          display: grid;
+          grid-template-columns: 1fr 300px;
+          gap: 1.5rem;
+          align-items: start;
         }
 
-        .stat-value {
-          font-family: 'Syne', sans-serif;
-          font-size: 1.6rem;
-          font-weight: 700;
-          color: #0f172a;
-          line-height: 1.1;
+        /* Calendar */
+        .dash-calendar {
+          background: #0f0f1a;
+          border: 1px solid rgba(255,255,255,0.07);
+          border-radius: 12px;
+          padding: 1.5rem;
         }
-
-        .stat-sub {
-          font-size: 0.75rem;
-          color: #64748b;
-        }
-
-        /* Users table section */
-        .users-section {
-          background: #ffffff;
-          border-radius: 20px;
-          box-shadow: 0 2px 12px rgba(0,0,0,0.06);
-          overflow: hidden;
-          position: relative;
-          z-index: 1;
-          animation: fadeUp 0.5s 0.3s ease both;
-        }
-
-        .users-section-header {
+        .cal-header {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: 1.5rem 1.75rem 1.25rem;
-          border-bottom: 1px solid #f1f5f9;
-          flex-wrap: wrap;
-          gap: 1rem;
+          margin-bottom: 1.25rem;
         }
-
-        .users-section-title {
-          font-family: 'Syne', sans-serif;
-          font-size: 1rem;
-          font-weight: 700;
-          color: #0f172a;
-          margin: 0;
+        .cal-title {
+          font-family: 'Bebas Neue', sans-serif;
+          font-size: 1.2rem;
+          letter-spacing: 0.06em;
         }
-
-        .users-count-badge {
-          font-size: 0.75rem;
-          background: #f1f5f9;
-          color: #64748b;
-          padding: 0.25rem 0.65rem;
-          border-radius: 20px;
-          font-weight: 500;
-        }
-
-        .search-bar {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          background: #f8fafc;
-          border: 1px solid #e2e8f0;
-          border-radius: 10px;
-          padding: 0.45rem 0.85rem;
-          transition: border-color 0.2s;
-        }
-
-        .search-bar:focus-within {
-          border-color: #6366f1;
-          box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
-        }
-
-        .search-bar input {
-          border: none;
-          background: transparent;
-          outline: none;
-          font-family: 'DM Sans', sans-serif;
-          font-size: 0.85rem;
-          color: #334155;
-          width: 200px;
-        }
-
-        .search-bar input::placeholder {
-          color: #94a3b8;
-        }
-
-        /* Table */
-        .users-table-wrap {
-          overflow-x: auto;
-        }
-
-        table {
-          width: 100%;
-          border-collapse: collapse;
-        }
-
-        thead tr {
-          border-bottom: 1px solid #f1f5f9;
-        }
-
-        th {
-          font-size: 0.7rem;
-          font-weight: 500;
-          letter-spacing: 0.07em;
-          text-transform: uppercase;
-          color: #94a3b8;
-          padding: 0.75rem 1.75rem;
-          text-align: left;
-          white-space: nowrap;
-        }
-
-        tbody tr {
-          border-bottom: 1px solid #f8fafc;
-          transition: background 0.15s ease;
-        }
-
-        tbody tr:last-child {
-          border-bottom: none;
-        }
-
-        tbody tr:hover {
-          background: #f8fafc;
-        }
-
-        td {
-          padding: 0.95rem 1.75rem;
-          font-size: 0.875rem;
-          color: #334155;
-          vertical-align: middle;
-          white-space: nowrap;
-        }
-
-        .user-cell {
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
-        }
-
-        .user-avatar {
-          width: 36px;
-          height: 36px;
-          border-radius: 50%;
+        .cal-nav {
+          background: none;
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 6px;
+          color: rgba(255,255,255,0.5);
+          cursor: pointer;
+          width: 28px;
+          height: 28px;
           display: flex;
           align-items: center;
           justify-content: center;
-          font-family: 'Syne', sans-serif;
-          font-size: 0.75rem;
+          transition: all 0.2s;
+          font-size: 0.85rem;
+        }
+        .cal-nav:hover { border-color: #ff5000; color: #ff5000; }
+        .cal-days-header {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          margin-bottom: 0.5rem;
+        }
+        .cal-day-name {
+          font-size: 0.65rem;
+          font-weight: 600;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          color: rgba(255,255,255,0.25);
+          text-align: center;
+          padding: 0.25rem 0;
+        }
+        .cal-grid {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          gap: 3px;
+        }
+        .cal-cell {
+          aspect-ratio: 1;
+          border-radius: 6px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.78rem;
+          font-weight: 500;
+          color: rgba(255,255,255,0.5);
+          position: relative;
+          cursor: default;
+        }
+        .cal-cell.booked {
+          background: rgba(255,80,0,0.18);
+          color: #ff5000;
           font-weight: 700;
+          border: 1px solid rgba(255,80,0,0.3);
+        }
+        .cal-cell.today {
+          background: rgba(255,255,255,0.08);
           color: #fff;
+          font-weight: 700;
+        }
+        .cal-cell.booked.today {
+          background: rgba(255,80,0,0.3);
+        }
+        .cal-legend {
+          display: flex;
+          gap: 1rem;
+          margin-top: 1rem;
+          padding-top: 1rem;
+          border-top: 1px solid rgba(255,255,255,0.06);
+        }
+        .cal-legend-item {
+          display: flex;
+          align-items: center;
+          gap: 0.4rem;
+          font-size: 0.72rem;
+          color: rgba(255,255,255,0.4);
+        }
+        .cal-legend-dot {
+          width: 10px;
+          height: 10px;
+          border-radius: 3px;
+        }
+
+        /* Bookings list */
+        .dash-bookings-title {
+          font-family: 'Bebas Neue', sans-serif;
+          font-size: 1.4rem;
+          letter-spacing: 0.06em;
+          margin-bottom: 1rem;
+        }
+        .dash-bookings-title span { color: #ff5000; }
+
+        .booking-card {
+          background: #0f0f1a;
+          border: 1px solid rgba(255,255,255,0.07);
+          border-radius: 12px;
+          padding: 1.25rem 1.5rem;
+          margin-bottom: 0.85rem;
+          transition: border-color 0.2s;
+        }
+        .booking-card:hover { border-color: rgba(255,80,0,0.2); }
+
+        .booking-card-top {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          margin-bottom: 0.85rem;
+        }
+        .booking-name {
+          font-weight: 700;
+          font-size: 1rem;
+          color: #fff;
+          margin-bottom: 0.2rem;
+        }
+        .booking-date-badge {
+          font-size: 0.72rem;
+          font-weight: 600;
+          letter-spacing: 0.08em;
+          color: rgba(255,255,255,0.4);
+        }
+        .status-badge {
+          font-size: 0.68rem;
+          font-weight: 700;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          padding: 0.25rem 0.7rem;
+          border-radius: 20px;
           flex-shrink: 0;
         }
 
-        .user-name {
-          font-weight: 500;
-          color: #0f172a;
+        .booking-info {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 0.35rem 1rem;
+          margin-bottom: 1rem;
+        }
+        .booking-info-item {
+          font-size: 0.8rem;
+          color: rgba(255,255,255,0.45);
+        }
+        .booking-info-item strong { color: rgba(255,255,255,0.7); }
+
+        .booking-message {
+          font-size: 0.8rem;
+          color: rgba(255,255,255,0.35);
+          padding-top: 0.75rem;
+          border-top: 1px solid rgba(255,255,255,0.06);
+          margin-bottom: 1rem;
+          line-height: 1.5;
         }
 
-        .user-username {
-          font-size: 0.78rem;
-          color: #94a3b8;
+        /* Action buttons */
+        .booking-actions {
+          display: flex;
+          gap: 0.5rem;
+          flex-wrap: wrap;
         }
-
-        .company-pill {
-          display: inline-block;
-          background: #f1f5f9;
-          color: #475569;
-          padding: 0.2rem 0.65rem;
-          border-radius: 20px;
-          font-size: 0.78rem;
-          font-weight: 500;
-        }
-
-        .city-tag {
+        .btn {
+          font-family: 'Barlow', sans-serif;
+          font-size: 0.72rem;
+          font-weight: 700;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          padding: 0.45rem 0.9rem;
+          border-radius: 6px;
+          border: none;
+          cursor: pointer;
+          transition: all 0.18s;
           display: inline-flex;
           align-items: center;
-          gap: 0.3rem;
-          color: #64748b;
-          font-size: 0.82rem;
+          gap: 0.35rem;
+        }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-confirm {
+          background: rgba(0,200,100,0.12);
+          color: #00c864;
+          border: 1px solid rgba(0,200,100,0.25);
+        }
+        .btn-confirm:hover:not(:disabled) {
+          background: rgba(0,200,100,0.22);
+        }
+        .btn-cancel {
+          background: rgba(255,180,0,0.1);
+          color: #ffb400;
+          border: 1px solid rgba(255,180,0,0.25);
+        }
+        .btn-cancel:hover:not(:disabled) {
+          background: rgba(255,180,0,0.2);
+        }
+        .btn-delete {
+          background: rgba(255,45,85,0.1);
+          color: #ff2d55;
+          border: 1px solid rgba(255,45,85,0.2);
+          margin-left: auto;
+        }
+        .btn-delete:hover:not(:disabled) {
+          background: rgba(255,45,85,0.2);
         }
 
-        /* Loading / Error */
-        .loading-state {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          padding: 4rem;
-          gap: 1rem;
-        }
-
-        .spinner {
-          width: 36px;
-          height: 36px;
-          border: 3px solid #e2e8f0;
-          border-top-color: #6366f1;
-          border-radius: 50%;
-          animation: spin 0.7s linear infinite;
-        }
-
-        .loading-text {
-          color: #94a3b8;
-          font-size: 0.88rem;
-        }
-
-        .skeleton-row td {
-          padding: 1.1rem 1.75rem;
-        }
-
-        .skeleton {
-          height: 14px;
-          background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
-          background-size: 200% 100%;
-          border-radius: 6px;
-          animation: shimmer 1.4s infinite;
-        }
-
-        .skeleton.short { width: 60px; }
-        .skeleton.medium { width: 120px; }
-        .skeleton.long { width: 180px; }
-        .skeleton.circle { width: 36px; height: 36px; border-radius: 50%; }
-
-        .no-results {
+        .empty-state {
           text-align: center;
-          padding: 3rem;
-          color: #94a3b8;
+          padding: 3rem 1rem;
+          color: rgba(255,255,255,0.2);
           font-size: 0.9rem;
         }
 
-        @keyframes fadeUp {
-          from { opacity: 0; transform: translateY(16px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-
-        @keyframes shimmer {
-          0% { background-position: 200% 0; }
-          100% { background-position: -200% 0; }
+        @media (max-width: 900px) {
+          .dash-grid { grid-template-columns: 1fr; }
+          .dash-stats { grid-template-columns: 1fr 1fr; }
         }
       `}</style>
 
-      <div className="dash-root">
-        {/* Header */}
-        <div className="dash-header">
-          <div>
-            <h1 className="dash-title">
-              Admin <span>Dashboard</span>
-            </h1>
-            <p className="dash-subtitle">Welcome back — here's what's happening today.</p>
+      <div className="dash">
+        <h1 className="dash-title">DASH <span>BOARD</span></h1>
+
+        {/* Stats */}
+        <div className="dash-stats">
+          <div className="dash-stat">
+            <div className="dash-stat-label">Total</div>
+            <div className="dash-stat-value orange">{bookings.length}</div>
           </div>
-          <span className="dash-date">
-            {new Date().toLocaleDateString("en-US", {
-              weekday: "long",
-              year: "numeric",
-              month: "long",
-              day: "numeric",
+          <div className="dash-stat">
+            <div className="dash-stat-label">Confirmed</div>
+            <div className="dash-stat-value green">
+              {bookings.filter(b => b.status === "confirmed").length}
+            </div>
+          </div>
+          <div className="dash-stat">
+            <div className="dash-stat-label">Pending</div>
+            <div className="dash-stat-value" style={{ color: "#ffb400" }}>
+              {bookings.filter(b => b.status === "pending").length}
+            </div>
+          </div>
+        </div>
+
+        <div className="dash-grid">
+          {/* Bookings list */}
+          <div>
+            <h2 className="dash-bookings-title">All <span>Bookings</span></h2>
+            {loading && <p style={{ color: "rgba(255,255,255,0.3)" }}>Loading...</p>}
+            {!loading && bookings.length === 0 && (
+              <div className="empty-state">No bookings yet. They'll appear here when clients submit inquiries.</div>
+            )}
+            {bookings.map(b => {
+              const sc = STATUS_COLORS[b.status] || STATUS_COLORS.pending;
+              const isProcessing = actionLoading === b.id;
+              return (
+                <div className="booking-card" key={b.id}>
+                  <div className="booking-card-top">
+                    <div>
+                      <div className="booking-name">{b.name}</div>
+                      <div className="booking-date-badge">
+                        📅 {b.eventDate} &nbsp;·&nbsp; {b.eventType}
+                      </div>
+                    </div>
+                    <span
+                      className="status-badge"
+                      style={{ background: sc.bg, color: sc.color }}
+                    >
+                      {b.status}
+                    </span>
+                  </div>
+
+                  <div className="booking-info">
+                    <div className="booking-info-item">📧 <strong>{b.email}</strong></div>
+                    <div className="booking-info-item">📱 <strong>{b.phone}</strong></div>
+                    <div className="booking-info-item">
+                      🕐 Submitted: <strong>{new Date(b.createdAt).toLocaleDateString()}</strong>
+                    </div>
+                  </div>
+
+                  {b.message && (
+                    <div className="booking-message">💬 {b.message}</div>
+                  )}
+
+                  <div className="booking-actions">
+                    {b.status !== "confirmed" && (
+                      <button
+                        className="btn btn-confirm"
+                        onClick={() => updateStatus(b.id, "confirmed")}
+                        disabled={isProcessing}
+                      >
+                        ✓ Confirm
+                      </button>
+                    )}
+                    {b.status !== "cancelled" && (
+                      <button
+                        className="btn btn-cancel"
+                        onClick={() => updateStatus(b.id, "cancelled")}
+                        disabled={isProcessing}
+                      >
+                        ✕ Cancel
+                      </button>
+                    )}
+                    {b.status === "cancelled" && (
+                      <button
+                        className="btn btn-confirm"
+                        onClick={() => updateStatus(b.id, "pending")}
+                        disabled={isProcessing}
+                      >
+                        ↺ Restore
+                      </button>
+                    )}
+                    <button
+                      className="btn btn-delete"
+                      onClick={() => deleteBooking(b.id)}
+                      disabled={isProcessing}
+                    >
+                      🗑 Delete
+                    </button>
+                  </div>
+                </div>
+              );
             })}
-          </span>
-        </div>
+          </div>
 
-        {/* Stat Cards */}
-        <div className="stats-grid">
-          <StatCard
-            label="Total Users"
-            value={loading ? "—" : users.length}
-            sub="From JSONPlaceholder API"
-            delay="0s"
-            color="linear-gradient(135deg, #6366f1, #818cf8)"
-            icon={
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
-            }
-          />
-          <StatCard
-            label="Cities"
-            value={loading ? "—" : cities}
-            sub="Unique locations"
-            delay="0.08s"
-            color="linear-gradient(135deg, #06b6d4, #22d3ee)"
-            icon={
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
-                <circle cx="12" cy="10" r="3" />
-              </svg>
-            }
-          />
-          <StatCard
-            label="Companies"
-            value={loading ? "—" : [...new Set(users.map((u) => u.company.name))].length}
-            sub="Distinct organizations"
-            delay="0.16s"
-            color="linear-gradient(135deg, #f59e0b, #fbbf24)"
-            icon={
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="2" y="7" width="20" height="14" rx="2" />
-                <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
-              </svg>
-            }
-          />
-          <StatCard
-            label="Websites"
-            value={loading ? "—" : users.filter((u) => u.website).length}
-            sub="Users with websites"
-            delay="0.24s"
-            color="linear-gradient(135deg, #10b981, #34d399)"
-            icon={
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="2" y1="12" x2="22" y2="12" />
-                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-              </svg>
-            }
-          />
-        </div>
-
-        {/* Users Table */}
-        <div className="users-section">
-          <div className="users-section-header">
-            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-              <h2 className="users-section-title">All Users</h2>
-              {!loading && (
-                <span className="users-count-badge">
-                  {filtered.length} of {users.length}
-                </span>
+          {/* Calendar */}
+          <div className="dash-calendar">
+            <div className="cal-header">
+              <button
+                className="cal-nav"
+                onClick={() => setCurrentMonth(new Date(year, month - 1))}
+              >‹</button>
+              <span className="cal-title">{monthName}</span>
+              <button
+                className="cal-nav"
+                onClick={() => setCurrentMonth(new Date(year, month + 1))}
+              >›</button>
+            </div>
+            <div className="cal-days-header">
+              {["Su","Mo","Tu","We","Th","Fr","Sa"].map(d => (
+                <div key={d} className="cal-day-name">{d}</div>
+              ))}
+            </div>
+            <div className="cal-grid">
+              {calendarCells.map((d, i) =>
+                d === null ? (
+                  <div key={`e-${i}`} />
+                ) : (
+                  <div
+                    key={d}
+                    className={`cal-cell${isBooked(d) ? " booked" : ""}${isToday(d) ? " today" : ""}`}
+                    title={isBooked(d) ? "Booked" : "Available"}
+                  >
+                    {d}
+                  </div>
+                )
               )}
             </div>
-            <div className="search-bar">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
-              <input
-                type="text"
-                placeholder="Search users..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
+            <div className="cal-legend">
+              <div className="cal-legend-item">
+                <div className="cal-legend-dot" style={{ background: "rgba(255,80,0,0.4)" }} />
+                Booked
+              </div>
+              <div className="cal-legend-item">
+                <div className="cal-legend-dot" style={{ background: "rgba(255,255,255,0.08)" }} />
+                Available
+              </div>
             </div>
-          </div>
-
-          <div className="users-table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>User</th>
-                  <th>Email</th>
-                  <th>Phone</th>
-                  <th>Company</th>
-                  <th>City</th>
-                  <th>Website</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  Array.from({ length: 6 }).map((_, i) => (
-                    <tr key={i} className="skeleton-row">
-                      <td>
-                        <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
-                          <div className="skeleton circle" />
-                          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                            <div className="skeleton long" />
-                            <div className="skeleton short" />
-                          </div>
-                        </div>
-                      </td>
-                      <td><div className="skeleton medium" /></td>
-                      <td><div className="skeleton medium" /></td>
-                      <td><div className="skeleton medium" /></td>
-                      <td><div className="skeleton short" /></td>
-                      <td><div className="skeleton medium" /></td>
-                    </tr>
-                  ))
-                ) : error ? (
-                  <tr>
-                    <td colSpan={6} className="no-results">{error}</td>
-                  </tr>
-                ) : filtered.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="no-results">No users found matching "{search}"</td>
-                  </tr>
-                ) : (
-                  filtered.map((user, i) => {
-                    const avatarColors = [
-                      "linear-gradient(135deg,#6366f1,#818cf8)",
-                      "linear-gradient(135deg,#06b6d4,#22d3ee)",
-                      "linear-gradient(135deg,#f59e0b,#fbbf24)",
-                      "linear-gradient(135deg,#10b981,#34d399)",
-                      "linear-gradient(135deg,#ec4899,#f472b6)",
-                      "linear-gradient(135deg,#8b5cf6,#a78bfa)",
-                    ];
-                    const initials = user.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
-                    return (
-                      <tr key={user.id}>
-                        <td>
-                          <div className="user-cell">
-                            <div
-                              className="user-avatar"
-                              style={{ background: avatarColors[i % avatarColors.length] }}
-                            >
-                              {initials}
-                            </div>
-                            <div>
-                              <div className="user-name">{user.name}</div>
-                              <div className="user-username">@{user.username}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td style={{ color: "#475569" }}>{user.email}</td>
-                        <td style={{ color: "#64748b", fontVariantNumeric: "tabular-nums" }}>{user.phone}</td>
-                        <td>
-                          <span className="company-pill">{user.company.name}</span>
-                        </td>
-                        <td>
-                          <span className="city-tag">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
-                            </svg>
-                            {user.address.city}
-                          </span>
-                        </td>
-                        <td>
-                          <a
-                            href={`https://${user.website}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            style={{ color: "#6366f1", textDecoration: "none", fontSize: "0.82rem" }}
-                          >
-                            {user.website}
-                          </a>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
           </div>
         </div>
       </div>
