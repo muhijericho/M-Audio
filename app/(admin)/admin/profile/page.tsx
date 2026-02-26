@@ -1,606 +1,449 @@
 "use client";
-// app/admin/profile/page.tsx
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
-interface User {
-  id: number;
-  name: string;
-  username: string;
+type Venue = {
+  id: number; venueName: string; address: string; city: string;
+  notes: string; lat: number; lng: number; createdAt: string;
+  inquiryFullName?: string; inquiryEmail?: string; inquiryEventType?: string;
+};
+
+type Inquiry = {
+  id: number; fullName: string; email: string; phone: string;
+  eventType: string; preferredDate: string; message: string;
+  status: string; createdAt: string;
+  venue?: Venue | null;
+};
+
+type Booking = {
+  id: number; name: string; email: string; phone: string;
+  eventType: string; eventDate: string; message: string;
+  status: string; createdAt: string;
+};
+
+// Aggregated client type for the clients page
+type Client = {
   email: string;
+  name: string;
   phone: string;
-  website: string;
-  company: { name: string; catchPhrase: string; bs: string };
-  address: { street: string; suite: string; city: string; zipcode: string };
-}
+  firstContact: string;
+  lastContact: string;
+  totalInteractions: number;
+  bookings: Array<{ id: number; eventDate: string; eventType: string; status: string; message?: string }>;
+  inquiries: Array<{ id: number; preferredDate: string; eventType: string; status: string; message?: string; venueName?: string }>;
+  overallStatus: "hot" | "warm" | "cold" | "converted";
+};
 
-const avatarColors = [
-  "linear-gradient(135deg,#6366f1,#818cf8)",
-  "linear-gradient(135deg,#06b6d4,#22d3ee)",
-  "linear-gradient(135deg,#f59e0b,#fbbf24)",
-  "linear-gradient(135deg,#10b981,#34d399)",
-  "linear-gradient(135deg,#ec4899,#f472b6)",
-  "linear-gradient(135deg,#8b5cf6,#a78bfa)",
-  "linear-gradient(135deg,#ef4444,#f87171)",
-  "linear-gradient(135deg,#0ea5e9,#38bdf8)",
-  "linear-gradient(135deg,#f97316,#fb923c)",
-  "linear-gradient(135deg,#14b8a6,#2dd4bf)",
-];
+const STATUS_COLORS: Record<string, { bg: string; color: string; border: string }> = {
+  pending:   { bg: "rgba(255,180,0,0.1)",  color: "#ffb400", border: "rgba(255,180,0,0.25)" },
+  confirmed: { bg: "rgba(0,200,100,0.1)",  color: "#00c864", border: "rgba(0,200,100,0.25)" },
+  cancelled: { bg: "rgba(255,45,85,0.1)",  color: "#ff2d55", border: "rgba(255,45,85,0.25)" },
+};
 
-function getInitials(name: string) {
-  return name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
-}
+const CLIENT_STATUS_COLORS: Record<Client["overallStatus"], { bg: string; color: string; border: string; label: string }> = {
+  hot:       { bg: "rgba(255,80,0,0.15)",  color: "#ff5000", border: "rgba(255,80,0,0.3)", label: "🔥 Hot Lead" },
+  warm:      { bg: "rgba(255,180,0,0.15)", color: "#ffb400", border: "rgba(255,180,0,0.3)", label: "⭐ Warm Lead" },
+  cold:      { bg: "rgba(100,100,120,0.15)", color: "#888", border: "rgba(100,100,120,0.3)", label: "❄️ Cold" },
+  converted: { bg: "rgba(0,200,100,0.15)",  color: "#00c864", border: "rgba(0,200,100,0.3)", label: "✅ Converted" },
+};
 
-export default function Profile() {
-  const [users, setUsers] = useState<User[]>([]);
+export default function AdminClientsPage() {
+  const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [search, setSearch] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | Client["overallStatus"]>("all");
+  const [sortBy, setSortBy] = useState<"recent" | "name" | "interactions">("recent");
+  const [expandedClient, setExpandedClient] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState<number | null>(null);
 
-  useEffect(() => {
-    fetch("https://jsonplaceholder.typicode.com/users")
-      .then((r) => r.json())
-      .then((data) => {
-        setUsers(data);
-        setLoading(false);
+  const fetchAll = async () => {
+    setLoading(true);
+    try {
+      const [bRes, iRes] = await Promise.all([
+        fetch("/api/booking"),
+        fetch("/api/inquiry"),
+      ]);
+      const bData = await bRes.json();
+      const iData = await iRes.json();
+      
+      const bookings: Booking[] = Array.isArray(bData) ? bData : [];
+      const inquiries: Inquiry[] = Array.isArray(iData?.inquiries) ? iData.inquiries : [];
+      
+      // Aggregate clients by email
+      const clientMap = new Map<string, Client>();
+      
+      // Process bookings
+      bookings.forEach(b => {
+        const key = b.email.toLowerCase();
+        const existing = clientMap.get(key);
+        const newClient: Client = {
+          email: b.email,
+          name: b.name,
+          phone: b.phone,
+          firstContact: existing?.firstContact || b.createdAt,
+          lastContact: b.createdAt,
+          totalInteractions: (existing?.totalInteractions || 0) + 1,
+          bookings: [...(existing?.bookings || []), {
+            id: b.id, eventDate: b.eventDate, eventType: b.eventType, 
+            status: b.status, message: b.message
+          }],
+          inquiries: existing?.inquiries || [],
+          overallStatus: "warm" // Will be recalculated below
+        };
+        clientMap.set(key, newClient);
       });
-  }, []);
+      
+      // Process inquiries
+      inquiries.forEach(q => {
+        const key = q.email.toLowerCase();
+        const existing = clientMap.get(key);
+        const newClient: Client = {
+          email: q.email,
+          name: q.fullName,
+          phone: q.phone,
+          firstContact: existing?.firstContact || q.createdAt,
+          lastContact: q.createdAt,
+          totalInteractions: (existing?.totalInteractions || 0) + 1,
+          bookings: existing?.bookings || [],
+          inquiries: [...(existing?.inquiries || []), {
+            id: q.id, preferredDate: q.preferredDate, eventType: q.eventType,
+            status: q.status, message: q.message, venueName: q.venue?.venueName
+          }],
+          overallStatus: "warm"
+        };
+        clientMap.set(key, newClient);
+      });
+      
+      // Calculate overall status for each client
+      const enrichedClients = Array.from(clientMap.values()).map(client => {
+        const hasConfirmedBooking = client.bookings.some(b => b.status === "confirmed");
+        const hasPending = [...client.bookings, ...client.inquiries].some(i => i.status === "pending");
+        const allCancelled = [...client.bookings, ...client.inquiries].every(i => i.status === "cancelled");
+        const recentContact = new Date(client.lastContact) > new Date(Date.now() - 30*24*60*60*1000);
+        
+        let overallStatus: Client["overallStatus"] = "cold";
+        if (hasConfirmedBooking) overallStatus = "converted";
+        else if (hasPending && recentContact) overallStatus = "hot";
+        else if (hasPending) overallStatus = "warm";
+        else if (allCancelled) overallStatus = "cold";
+        
+        return { ...client, overallStatus };
+      });
+      
+      setClients(enrichedClients);
+    } catch (err) {
+      console.error("Failed to fetch clients:", err);
+    }
+    setLoading(false);
+  };
 
-  const filtered = users.filter(
-    (u) =>
-      u.name.toLowerCase().includes(search.toLowerCase()) ||
-      u.username.toLowerCase().includes(search.toLowerCase()) ||
-      u.company.name.toLowerCase().includes(search.toLowerCase()) ||
-      u.address.city.toLowerCase().includes(search.toLowerCase())
-  );
+  useEffect(() => { fetchAll(); }, []);
 
-  const selected = users.find((u) => u.id === selectedId) ?? null;
-  const selectedIndex = users.findIndex((u) => u.id === selectedId);
+  const updateBookingStatus = async (bookingId: number, status: string) => {
+    setActionLoading(bookingId);
+    await fetch(`/api/booking/${bookingId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status })
+    });
+    fetchAll();
+    setActionLoading(null);
+  };
+
+  const updateInquiryStatus = async (inquiryId: number, status: string) => {
+    setActionLoading(inquiryId);
+    await fetch(`/api/inquiry/${inquiryId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status })
+    });
+    fetchAll();
+    setActionLoading(null);
+  };
+
+  // Filter and sort clients
+  const filteredClients = clients
+    .filter(c => {
+      const matchesSearch = 
+        c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        c.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        c.phone.includes(searchTerm);
+      const matchesStatus = statusFilter === "all" || c.overallStatus === statusFilter;
+      return matchesSearch && matchesStatus;
+    })
+    .sort((a, b) => {
+      if (sortBy === "recent") return new Date(b.lastContact).getTime() - new Date(a.lastContact).getTime();
+      if (sortBy === "name") return a.name.localeCompare(b.name);
+      if (sortBy === "interactions") return b.totalInteractions - a.totalInteractions;
+      return 0;
+    });
 
   return (
-    <>
+    <div style={{ background: "#05050a", minHeight: "100vh", padding: "2rem", color: "#fff", fontFamily: "'Barlow', sans-serif" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500&display=swap');
-
-        .profile-root {
-          font-family: 'DM Sans', sans-serif;
-          min-height: 100vh;
-          background: #f0f2f7;
-          padding: 2.5rem 2.5rem 3rem;
-        }
-
-        .profile-page-header {
-          display: flex;
-          align-items: flex-end;
-          justify-content: space-between;
-          margin-bottom: 2rem;
-          flex-wrap: wrap;
-          gap: 1rem;
-        }
-
-        .profile-page-title {
-          font-family: 'Syne', sans-serif;
-          font-size: 2rem;
-          font-weight: 800;
-          color: #0f172a;
-          margin: 0 0 0.25rem;
-        }
-
-        .profile-page-title span { color: #6366f1; }
-
-        .profile-page-sub {
-          margin: 0;
-          color: #64748b;
-          font-size: 0.88rem;
-        }
-
-        .profile-search-bar {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          background: #fff;
-          border: 1px solid #e2e8f0;
-          border-radius: 10px;
-          padding: 0.5rem 0.9rem;
-          box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-          transition: border-color 0.2s, box-shadow 0.2s;
-        }
-
-        .profile-search-bar:focus-within {
-          border-color: #6366f1;
-          box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
-        }
-
-        .profile-search-bar input {
-          border: none;
-          background: transparent;
-          outline: none;
-          font-family: 'DM Sans', sans-serif;
-          font-size: 0.85rem;
-          color: #334155;
-          width: 200px;
-        }
-
-        .profile-search-bar input::placeholder { color: #94a3b8; }
-
-        /* Master-detail layout */
-        .profile-layout {
-          display: grid;
-          grid-template-columns: 1fr 360px;
-          gap: 1.5rem;
-          align-items: start;
-        }
-
-        /* User list */
-        .users-list-card {
-          background: #fff;
-          border-radius: 20px;
-          box-shadow: 0 2px 12px rgba(0,0,0,0.06);
-          overflow: hidden;
-          animation: fadeUp 0.4s ease both;
-        }
-
-        .users-list-header {
-          padding: 1.25rem 1.5rem;
-          border-bottom: 1px solid #f1f5f9;
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
-        }
-
-        .users-list-title {
-          font-family: 'Syne', sans-serif;
-          font-size: 0.95rem;
-          font-weight: 700;
-          color: #0f172a;
-          margin: 0;
-        }
-
-        .count-badge {
-          font-size: 0.72rem;
-          background: #f1f5f9;
-          color: #64748b;
-          padding: 0.2rem 0.6rem;
-          border-radius: 20px;
-          font-weight: 500;
-        }
-
-        .user-list-item {
-          display: flex;
-          align-items: center;
-          gap: 1rem;
-          padding: 0.9rem 1.5rem;
-          cursor: pointer;
-          border-bottom: 1px solid #f8fafc;
-          transition: background 0.15s ease;
-          border-left: 3px solid transparent;
-        }
-
-        .user-list-item:last-child { border-bottom: none; }
-        .user-list-item:hover { background: #f8fafc; }
-
-        .user-list-item.active {
-          background: rgba(99,102,241,0.04);
-          border-left-color: #6366f1;
-        }
-
-        .user-list-item.active .ulist-name { color: #6366f1; }
-
-        .ulist-avatar {
-          width: 42px;
-          height: 42px;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-family: 'Syne', sans-serif;
-          font-size: 0.8rem;
-          font-weight: 700;
-          color: #fff;
-          flex-shrink: 0;
-        }
-
-        .ulist-info { flex: 1; min-width: 0; }
-
-        .ulist-name {
-          font-weight: 500;
-          font-size: 0.9rem;
-          color: #0f172a;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          transition: color 0.15s;
-        }
-
-        .ulist-meta {
-          font-size: 0.78rem;
-          color: #94a3b8;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-
-        .ulist-city {
-          display: flex;
-          align-items: center;
-          gap: 0.25rem;
-          font-size: 0.75rem;
-          color: #94a3b8;
-          flex-shrink: 0;
-        }
-
-        /* Detail panel */
-        .profile-detail-panel {
-          position: sticky;
-          top: 2rem;
-          animation: fadeUp 0.45s 0.1s ease both;
-        }
-
-        .detail-empty {
-          background: #fff;
-          border-radius: 20px;
-          box-shadow: 0 2px 12px rgba(0,0,0,0.06);
-          padding: 3rem 2rem;
-          text-align: center;
-          color: #94a3b8;
-        }
-
-        .detail-empty-icon {
-          width: 56px;
-          height: 56px;
-          background: #f1f5f9;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          margin: 0 auto 1rem;
-        }
-
-        .detail-empty p { margin: 0; font-size: 0.88rem; }
-
-        /* Profile detail card */
-        .profile-card {
-          background: #fff;
-          border-radius: 20px;
-          box-shadow: 0 2px 12px rgba(0,0,0,0.06);
-          overflow: hidden;
-        }
-
-        .profile-banner {
-          height: 80px;
-          position: relative;
-        }
-
-        .profile-banner-close {
-          position: absolute;
-          top: 0.65rem;
-          right: 0.75rem;
-          width: 28px;
-          height: 28px;
-          background: rgba(255,255,255,0.2);
-          border: none;
-          border-radius: 50%;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: #fff;
-          transition: background 0.15s;
-        }
-
-        .profile-banner-close:hover { background: rgba(255,255,255,0.35); }
-
-        .profile-card-avatar {
-          width: 64px;
-          height: 64px;
-          border-radius: 50%;
-          border: 3px solid #fff;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-family: 'Syne', sans-serif;
-          font-size: 1.2rem;
-          font-weight: 700;
-          color: #fff;
-          position: absolute;
-          bottom: -32px;
-          left: 1.5rem;
-          box-shadow: 0 4px 16px rgba(0,0,0,0.15);
-        }
-
-        .profile-card-body { padding: 2.5rem 1.5rem 1.5rem; }
-
-        .profile-card-name {
-          font-family: 'Syne', sans-serif;
-          font-size: 1.2rem;
-          font-weight: 700;
-          color: #0f172a;
-          margin: 0 0 0.15rem;
-        }
-
-        .profile-card-username {
-          font-size: 0.82rem;
-          color: #94a3b8;
-          margin: 0 0 1.25rem;
-        }
-
-        .detail-divider {
-          border: none;
-          border-top: 1px solid #f1f5f9;
-          margin: 1rem 0;
-        }
-
-        .detail-section-label {
-          font-size: 0.65rem;
-          font-weight: 500;
-          letter-spacing: 0.1em;
-          text-transform: uppercase;
-          color: #94a3b8;
-          margin: 0 0 0.75rem;
-        }
-
-        .detail-row {
-          display: flex;
-          align-items: flex-start;
-          gap: 0.65rem;
-          margin-bottom: 0.75rem;
-        }
-
-        .detail-row-icon {
-          width: 28px;
-          height: 28px;
-          background: #f8fafc;
-          border-radius: 7px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
-          margin-top: 2px;
-        }
-
-        .detail-row-content label {
-          display: block;
-          font-size: 0.68rem;
-          color: #94a3b8;
-          font-weight: 500;
-          letter-spacing: 0.05em;
-          text-transform: uppercase;
-          margin-bottom: 1px;
-        }
-
-        .detail-row-content p, .detail-row-content a {
-          margin: 0;
-          font-size: 0.85rem;
-          color: #334155;
-          font-weight: 500;
-          word-break: break-word;
-          line-height: 1.5;
-        }
-
-        .detail-row-content a {
-          color: #6366f1;
-          text-decoration: none;
-        }
-
-        .company-block {
-          background: linear-gradient(135deg, rgba(99,102,241,0.06), rgba(139,92,246,0.04));
-          border: 1px solid rgba(99,102,241,0.12);
-          border-radius: 12px;
-          padding: 1rem 1.1rem;
-        }
-
-        .company-block-name {
-          font-family: 'Syne', sans-serif;
-          font-size: 0.9rem;
-          font-weight: 700;
-          color: #0f172a;
-          margin: 0 0 0.25rem;
-        }
-
-        .company-block-phrase {
-          font-size: 0.78rem;
-          color: #64748b;
-          font-style: italic;
-          margin: 0;
-          line-height: 1.4;
-        }
-
-        /* Skeleton */
-        .skeleton {
-          height: 14px;
-          background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
-          background-size: 200% 100%;
-          border-radius: 6px;
-          animation: shimmer 1.4s infinite;
-        }
-
-        .no-results-msg {
-          padding: 2.5rem;
-          text-align: center;
-          color: #94a3b8;
-          font-size: 0.88rem;
-        }
-
-        @keyframes fadeUp {
-          from { opacity: 0; transform: translateY(14px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-
-        @keyframes shimmer {
-          0% { background-position: 200% 0; }
-          100% { background-position: -200% 0; }
+        @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;500;600;700&display=swap');
+        .ac-layout { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
+        .ac-filters { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; margin-bottom: 1.25rem; padding: 1rem; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; }
+        .ac-search { flex: 1; min-width: 200px; position: relative; }
+        .ac-search input { width: 100%; padding: 0.6rem 1rem 0.6rem 2.2rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #fff; font-size: 0.85rem; font-family: 'Barlow', sans-serif; }
+        .ac-search input::placeholder { color: rgba(255,255,255,0.3); }
+        .ac-search-icon { position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: rgba(255,255,255,0.3); font-size: 0.9rem; }
+        .ac-select { padding: 0.6rem 1rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #fff; font-size: 0.8rem; font-family: 'Barlow', sans-serif; cursor: pointer; }
+        .ac-select option { background: #0f0f1a; color: #fff; }
+        .ac-client-card { background: #0f0f1a; border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; padding: 1.25rem; margin-bottom: 0.75rem; transition: all 0.2s; }
+        .ac-client-card:hover { border-color: rgba(255,80,0,0.3); }
+        .ac-client-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; cursor: pointer; }
+        .ac-client-info { flex: 1; min-width: 0; }
+        .ac-client-name { font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0 0 4px; display: flex; align-items: center; gap: 0.5rem; }
+        .ac-client-email { font-size: 0.82rem; color: rgba(255,255,255,0.4); margin-bottom: 4px; word-break: break-all; }
+        .ac-client-meta { display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.75rem; color: rgba(255,255,255,0.3); }
+        .ac-client-status { padding: 0.25rem 0.8rem; border-radius: 20px; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; border: 1px solid; white-space: nowrap; }
+        .ac-interactions-badge { background: rgba(255,80,0,0.15); color: #ff5000; border: 1px solid rgba(255,80,0,0.3); border-radius: 20px; padding: 0.15rem 0.6rem; font-size: 0.7rem; font-weight: 600; }
+        .ac-expand-icon { color: rgba(255,255,255,0.4); font-size: 1.1rem; transition: transform 0.2s; }
+        .ac-expand-icon.expanded { transform: rotate(180deg); }
+        .ac-history { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.05); }
+        .ac-history-title { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,80,0,0.7); margin-bottom: 0.75rem; }
+        .ac-history-item { background: rgba(255,255,255,0.02); border-radius: 8px; padding: 0.75rem; margin-bottom: 0.5rem; border-left: 3px solid; }
+        .ac-history-item.booking { border-left-color: #00c864; }
+        .ac-history-item.inquiry { border-left-color: #ff5000; }
+        .ac-history-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; }
+        .ac-history-type { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
+        .ac-history-type.booking { color: #00c864; }
+        .ac-history-type.inquiry { color: #ff5000; }
+        .ac-history-date { font-size: 0.7rem; color: rgba(255,255,255,0.3); }
+        .ac-history-details { font-size: 0.8rem; color: rgba(255,255,255,0.5); margin-bottom: 0.4rem; }
+        .ac-history-message { font-size: 0.78rem; color: rgba(255,255,255,0.35); font-style: italic; margin-top: 0.3rem; }
+        .ac-history-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.5rem; }
+        .ac-btn { padding: 0.35rem 0.75rem; border-radius: 5px; font-size: 0.68rem; font-weight: 600; cursor: pointer; border: 1px solid transparent; transition: all 0.15s; background: transparent; font-family: 'Barlow', sans-serif; }
+        .ac-btn:hover:not(:disabled) { opacity: 0.85; }
+        .ac-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .ac-btn-confirm { color: #00c864; border-color: rgba(0,200,100,0.3); }
+        .ac-btn-cancel { color: #ffb400; border-color: rgba(255,180,0,0.3); }
+        .ac-empty { text-align: center; padding: 3rem; color: rgba(255,255,255,0.25); font-size: 0.95rem; }
+        .ac-stats-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.75rem; margin-bottom: 1.5rem; }
+        .ac-stat-card { background: #0f0f1a; border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; padding: 1rem; text-align: center; }
+        .ac-stat-num { font-family: 'Bebas Neue', sans-serif; font-size: 1.6rem; color: #ff5000; line-height: 1; }
+        .ac-stat-label { font-size: 0.65rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.35); margin-top: 4px; }
+        @media (max-width: 600px) {
+          .ac-client-header { flex-direction: column; align-items: flex-start; }
+          .ac-filters { flex-direction: column; align-items: stretch; }
+          .ac-search { width: 100%; }
         }
       `}</style>
 
-      <div className="profile-root">
-        <div className="profile-page-header">
-          <div>
-            <h1 className="profile-page-title">User <span>Profiles</span></h1>
-            <p className="profile-page-sub">Browse and inspect all registered user accounts.</p>
-          </div>
-          <div className="profile-search-bar">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-            <input
-              type="text"
-              placeholder="Search profiles..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.5rem", flexWrap: "wrap", gap: "1rem" }}>
+        <div>
+          <h1 style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "2.2rem", letterSpacing: "0.04em", margin: 0 }}>
+            Client <span style={{ color: "#ff5000" }}>Directory</span>
+          </h1>
+          <p style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.85rem", marginTop: "4px" }}>
+            View all clients, their interaction history, and lead status
+          </p>
         </div>
+        <button 
+          onClick={fetchAll} 
+          disabled={loading}
+          style={{ 
+            background: loading ? "rgba(255,80,0,0.05)" : "rgba(255,80,0,0.1)", 
+            border: "1px solid rgba(255,80,0,0.25)", 
+            color: loading ? "rgba(255,80,0,0.4)" : "#ff5000", 
+            borderRadius: "8px", 
+            padding: "0.55rem 1rem", 
+            cursor: loading ? "not-allowed" : "pointer", 
+            fontSize: "0.75rem", 
+            fontWeight: 700, 
+            letterSpacing: "0.08em", 
+            textTransform: "uppercase", 
+            fontFamily: "'Barlow', sans-serif",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.4rem"
+          }}
+        >
+          {loading ? "⏳" : "↻"} {loading ? "Loading..." : "Refresh"}
+        </button>
+      </div>
 
-        <div className="profile-layout">
-          {/* LEFT: List */}
-          <div className="users-list-card">
-            <div className="users-list-header">
-              <h2 className="users-list-title">All Users</h2>
-              {!loading && (
-                <span className="count-badge">{filtered.length} of {users.length}</span>
-              )}
-            </div>
-
-            {loading ? (
-              Array.from({ length: 7 }).map((_, i) => (
-                <div key={i} className="user-list-item" style={{ cursor: "default" }}>
-                  <div className="skeleton" style={{ width: 42, height: 42, borderRadius: "50%", flexShrink: 0 }} />
-                  <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
-                    <div className="skeleton" style={{ width: "50%" }} />
-                    <div className="skeleton" style={{ width: "70%" }} />
-                  </div>
-                  <div className="skeleton" style={{ width: 60 }} />
-                </div>
-              ))
-            ) : filtered.length === 0 ? (
-              <div className="no-results-msg">No users match "{search}"</div>
-            ) : (
-              filtered.map((user, i) => (
-                <div
-                  key={user.id}
-                  className={`user-list-item${selectedId === user.id ? " active" : ""}`}
-                  onClick={() => setSelectedId(selectedId === user.id ? null : user.id)}
-                >
-                  <div className="ulist-avatar" style={{ background: avatarColors[i % avatarColors.length] }}>
-                    {getInitials(user.name)}
-                  </div>
-                  <div className="ulist-info">
-                    <div className="ulist-name">{user.name}</div>
-                    <div className="ulist-meta">{user.email}</div>
-                  </div>
-                  <div className="ulist-city">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" />
-                    </svg>
-                    {user.address.city}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-
-          {/* RIGHT: Detail */}
-          <div className="profile-detail-panel">
-            {!selected ? (
-              <div className="detail-empty">
-                <div className="detail-empty-icon">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
-                  </svg>
-                </div>
-                <p>Select a user to view their full profile.</p>
-              </div>
-            ) : (
-              <div className="profile-card" key={selected.id}>
-                <div
-                  className="profile-banner"
-                  style={{ background: avatarColors[selectedIndex % avatarColors.length] }}
-                >
-                  <button className="profile-banner-close" onClick={() => setSelectedId(null)} aria-label="Close">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
-                      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
-                  </button>
-                  <div
-                    className="profile-card-avatar"
-                    style={{ background: avatarColors[selectedIndex % avatarColors.length] }}
-                  >
-                    {getInitials(selected.name)}
-                  </div>
-                </div>
-
-                <div className="profile-card-body">
-                  <div className="profile-card-name">{selected.name}</div>
-                  <div className="profile-card-username">@{selected.username}</div>
-
-                  <p className="detail-section-label">Contact</p>
-
-                  <div className="detail-row">
-                    <div className="detail-row-icon">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                        <polyline points="22,6 12,13 2,6" />
-                      </svg>
-                    </div>
-                    <div className="detail-row-content">
-                      <label>Email</label>
-                      <p>{selected.email}</p>
-                    </div>
-                  </div>
-
-                  <div className="detail-row">
-                    <div className="detail-row-icon">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.71 3.18 2 2 0 0 1 3.68 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.64a16 16 0 0 0 6 6l1-1.02a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z" />
-                      </svg>
-                    </div>
-                    <div className="detail-row-content">
-                      <label>Phone</label>
-                      <p>{selected.phone}</p>
-                    </div>
-                  </div>
-
-                  <div className="detail-row">
-                    <div className="detail-row-icon">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="10" /><line x1="2" y1="12" x2="22" y2="12" />
-                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-                      </svg>
-                    </div>
-                    <div className="detail-row-content">
-                      <label>Website</label>
-                      <a href={`https://${selected.website}`} target="_blank" rel="noreferrer">{selected.website}</a>
-                    </div>
-                  </div>
-
-                  <hr className="detail-divider" />
-                  <p className="detail-section-label">Address</p>
-
-                  <div className="detail-row">
-                    <div className="detail-row-icon">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" />
-                      </svg>
-                    </div>
-                    <div className="detail-row-content">
-                      <label>Full Address</label>
-                      <p>{selected.address.street}, {selected.address.suite}</p>
-                      <p>{selected.address.city}, {selected.address.zipcode}</p>
-                    </div>
-                  </div>
-
-                  <hr className="detail-divider" />
-                  <p className="detail-section-label">Company</p>
-
-                  <div className="company-block">
-                    <p className="company-block-name">{selected.company.name}</p>
-                    <p className="company-block-phrase">"{selected.company.catchPhrase}"</p>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+      {/* Stats Bar */}
+      <div className="ac-stats-bar">
+        <div className="ac-stat-card">
+          <div className="ac-stat-num">{clients.filter(c => c.overallStatus === "hot").length}</div>
+          <div className="ac-stat-label">🔥 Hot Leads</div>
+        </div>
+        <div className="ac-stat-card">
+          <div className="ac-stat-num">{clients.filter(c => c.overallStatus === "converted").length}</div>
+          <div className="ac-stat-label">✅ Converted</div>
+        </div>
+        <div className="ac-stat-card">
+          <div className="ac-stat-num">{clients.filter(c => c.totalInteractions > 2).length}</div>
+          <div className="ac-stat-label">🔄 Engaged</div>
+        </div>
+        <div className="ac-stat-card">
+          <div className="ac-stat-num">{clients.length}</div>
+          <div className="ac-stat-label">👥 Total Clients</div>
         </div>
       </div>
-    </>
+
+      {/* Filters */}
+      <div className="ac-filters">
+        <div className="ac-search">
+          <span className="ac-search-icon">🔍</span>
+          <input 
+            type="text" 
+            placeholder="Search by name, email, or phone..." 
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+        <select 
+          className="ac-select" 
+          value={statusFilter} 
+          onChange={(e) => setStatusFilter(e.target.value as any)}
+        >
+          <option value="all">All Statuses</option>
+          <option value="hot">🔥 Hot Leads</option>
+          <option value="warm">⭐ Warm Leads</option>
+          <option value="cold">❄️ Cold</option>
+          <option value="converted">✅ Converted</option>
+        </select>
+        <select 
+          className="ac-select" 
+          value={sortBy} 
+          onChange={(e) => setSortBy(e.target.value as any)}
+        >
+          <option value="recent">Sort: Most Recent</option>
+          <option value="name">Sort: Name A-Z</option>
+          <option value="interactions">Sort: Most Interactions</option>
+        </select>
+      </div>
+
+      {/* Client List */}
+      <div className="ac-layout">
+        {loading ? (
+          <div className="ac-empty">Loading clients...</div>
+        ) : filteredClients.length === 0 ? (
+          <div className="ac-empty">
+            {searchTerm || statusFilter !== "all" 
+              ? "No clients match your filters." 
+              : "No clients found. They'll appear here once bookings or inquiries are submitted."}
+          </div>
+        ) : (
+          filteredClients.map(client => {
+            const statusConfig = CLIENT_STATUS_COLORS[client.overallStatus];
+            const isExpanded = expandedClient === client.email;
+            
+            return (
+              <div key={client.email} className="ac-client-card">
+                <div 
+                  className="ac-client-header"
+                  onClick={() => setExpandedClient(isExpanded ? null : client.email)}
+                >
+                  <div className="ac-client-info">
+                    <p className="ac-client-name">
+                      {client.name}
+                      <span className="ac-interactions-badge">{client.totalInteractions} interaction{client.totalInteractions !== 1 ? 's' : ''}</span>
+                    </p>
+                    <p className="ac-client-email">{client.email}</p>
+                    <div className="ac-client-meta">
+                      <span>📱 {client.phone || "No phone"}</span>
+                      <span>🗓 First: {new Date(client.firstContact).toLocaleDateString()}</span>
+                      <span>🕐 Last: {new Date(client.lastContact).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.5rem" }}>
+                    <span className="ac-client-status" style={{ 
+                      background: statusConfig.bg, 
+                      color: statusConfig.color, 
+                      borderColor: statusConfig.border 
+                    }}>
+                      {statusConfig.label}
+                    </span>
+                    <span className={`ac-expand-icon${isExpanded ? " expanded" : ""}`}>▼</span>
+                  </div>
+                </div>
+
+                {/* Expanded History */}
+                {isExpanded && (
+                  <div className="ac-history">
+                    <div className="ac-history-title">Interaction History</div>
+                    
+                    {/* Bookings */}
+                    {client.bookings.map(b => (
+                      <div key={`booking-${b.id}`} className={`ac-history-item booking`}>
+                        <div className="ac-history-header">
+                          <span className="ac-history-type booking">📅 Booking</span>
+                          <span className="ac-history-date">{new Date(b.eventDate).toLocaleDateString()}</span>
+                        </div>
+                        <div className="ac-history-details">
+                          <strong>{b.eventType}</strong> • Status:{" "}
+                          <span style={{ color: STATUS_COLORS[b.status]?.color || "#888" }}>{b.status}</span>
+                        </div>
+                        {b.message && <div className="ac-history-message">"{b.message}"</div>}
+                        <div className="ac-history-actions">
+                          {b.status !== "confirmed" && (
+                            <button 
+                              className="ac-btn ac-btn-confirm"
+                              disabled={actionLoading === b.id}
+                              onClick={(e) => { e.stopPropagation(); updateBookingStatus(b.id, "confirmed"); }}
+                            >
+                              ✓ Confirm
+                            </button>
+                          )}
+                          {b.status !== "cancelled" && (
+                            <button 
+                              className="ac-btn ac-btn-cancel"
+                              disabled={actionLoading === b.id}
+                              onClick={(e) => { e.stopPropagation(); updateBookingStatus(b.id, "cancelled"); }}
+                            >
+                              ✕ Cancel
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    
+                    {/* Inquiries */}
+                    {client.inquiries.map(q => (
+                      <div key={`inquiry-${q.id}`} className={`ac-history-item inquiry`}>
+                        <div className="ac-history-header">
+                          <span className="ac-history-type inquiry">💬 Inquiry</span>
+                          <span className="ac-history-date">{q.preferredDate ? new Date(q.preferredDate).toLocaleDateString() : "No date"}</span>
+                        </div>
+                        <div className="ac-history-details">
+                          <strong>{q.eventType}</strong> • Status:{" "}
+                          <span style={{ color: STATUS_COLORS[q.status]?.color || "#888" }}>{q.status}</span>
+                          {q.venueName && <span> • 📍 {q.venueName}</span>}
+                        </div>
+                        {q.message && <div className="ac-history-message">"{q.message}"</div>}
+                        <div className="ac-history-actions">
+                          {q.status !== "confirmed" && (
+                            <button 
+                              className="ac-btn ac-btn-confirm"
+                              disabled={actionLoading === q.id}
+                              onClick={(e) => { e.stopPropagation(); updateInquiryStatus(q.id, "confirmed"); }}
+                            >
+                              ✓ Respond
+                            </button>
+                          )}
+                          {q.status !== "cancelled" && (
+                            <button 
+                              className="ac-btn ac-btn-cancel"
+                              disabled={actionLoading === q.id}
+                              onClick={(e) => { e.stopPropagation(); updateInquiryStatus(q.id, "cancelled"); }}
+                            >
+                              ✕ Dismiss
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
   );
 }

@@ -1,10 +1,10 @@
-// app/api/auth/login/route.ts
+// app/api/auth/client-login/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient, Role } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import { Role } from "@prisma/client";  // ← capital R
 import bcrypt from "bcryptjs";
+import { cookies } from "next/headers";
 import { SignJWT } from "jose";
-
-const prisma = new PrismaClient();
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || "change-this-secret-in-production"
@@ -21,52 +21,50 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ONLY allow ADMIN role
     const user = await prisma.user.findFirst({
       where: {
         username: username,
-        role: Role.ADMIN,
+        role: Role.CLIENT,  // ← Role.CLIENT not "CLIENT"
       },
     });
 
     if (!user) {
       return NextResponse.json(
-        { error: "Invalid credentials" },
+        { error: "Invalid username or password" },
         { status: 401 }
       );
     }
 
-    const valid = await bcrypt.compare(password, user.password);
-    if (!valid) {
+    const passwordMatch = await bcrypt.compare(password, user.password);
+    if (!passwordMatch) {
       return NextResponse.json(
-        { error: "Invalid credentials" },
+        { error: "Invalid username or password" },
         { status: 401 }
       );
     }
 
-    // Sign JWT with role embedded
     const token = await new SignJWT({
       id: user.id,
       username: user.username,
-      role: user.role, // "ADMIN"
+      role: user.role,
     })
       .setProtectedHeader({ alg: "HS256" })
       .setIssuedAt()
-      .setExpirationTime("8h")
+      .setExpirationTime("7d")
       .sign(JWT_SECRET);
 
-    const response = NextResponse.json({ success: true });
-    response.cookies.set("auth-token", token, {
+    const cookieStore = await cookies();
+    cookieStore.set("client-token", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: 60 * 60 * 8,
+      maxAge: 60 * 60 * 24 * 7,
       path: "/",
     });
 
-    return response;
+    return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Admin login error:", error);
+    console.error("Client login error:", error);
     return NextResponse.json(
       { error: "An error occurred. Please try again." },
       { status: 500 }
