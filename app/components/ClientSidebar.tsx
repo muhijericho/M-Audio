@@ -1,11 +1,10 @@
-// app/components/AdminSidebar.tsx
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 const navItems = [
-    {
+  {
     href: "/client/dashboard",
     label: "Dashboard",
     icon: (
@@ -21,10 +20,10 @@ const navItems = [
     href: "/client/booking",
     label: "Bookings",
     icon: (
-         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-           <path d="M8 2v4" /><path d="M16 2v4" /><rect width="18" height="18" x="3" y="4" rx="2" />
-           <path d="M3 10h18" /><path d="m9 16 2 2 4-4" />
-         </svg>
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M8 2v4" /><path d="M16 2v4" /><rect width="18" height="18" x="3" y="4" rx="2" />
+        <path d="M3 10h18" /><path d="m9 16 2 2 4-4" />
+      </svg>
     ),
   },
   {
@@ -39,15 +38,46 @@ const navItems = [
   },
 ];
 
-export default function ClientSidebar() {
+interface ClientSidebarProps {
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
+  isMobile?: boolean;
+}
+
+export default function ClientSidebar({ 
+  mobileOpen = false, 
+  onMobileClose,
+  isMobile = false 
+}: ClientSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
 
+  // Lock body scroll when mobile sidebar is open
+  useEffect(() => {
+    if (mobileOpen && isMobile) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [mobileOpen, isMobile]);
+
   const handleLogout = async () => {
     setLoggingOut(true);
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/login");
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+      router.push("/login");
+    } catch (error) {
+      console.error("Logout failed:", error);
+      setLoggingOut(false);
+    }
+  };
+
+  const handleNavClick = () => {
+    if (onMobileClose && isMobile) {
+      onMobileClose();
+    }
   };
 
   return (
@@ -55,22 +85,53 @@ export default function ClientSidebar() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;500;600&display=swap');
 
-        .m-sidebar {
+        :root {
+          --sidebar-width: 240px;
+          --sidebar-width-mobile: 260px;
+          --sidebar-bg: #05050a;
+          --accent-orange: #ff5000;
+          --accent-pink: #ff2d55;
+          --text-primary: #ffffff;
+          --text-secondary: rgba(255,255,255,0.45);
+          --border-color: rgba(255,255,255,0.06);
+          --hover-bg: rgba(255,255,255,0.05);
+          --active-bg: rgba(255, 80, 0, 0.12);
+          --transition-speed: 0.3s;
+        }
+
+        .c-sidebar {
           position: fixed;
           top: 0;
           left: 0;
-          width: 240px;
+          width: var(--sidebar-width);
           height: 100vh;
-          background: #05050a;
+          background: var(--sidebar-bg);
           display: flex;
           flex-direction: column;
           z-index: 100;
           border-right: 1px solid rgba(255, 80, 0, 0.12);
           overflow: hidden;
+          transition: transform var(--transition-speed) ease;
+          will-change: transform;
         }
 
-        /* Subtle orange glow top-left */
-        .m-sidebar::before {
+        /* Desktop: always visible */
+        .c-sidebar.desktop {
+          transform: translateX(0) !important;
+        }
+
+        /* Mobile: hidden by default */
+        .c-sidebar.mobile {
+          width: var(--sidebar-width-mobile);
+          transform: translateX(-100%);
+        }
+
+        .c-sidebar.mobile.mobile-open {
+          transform: translateX(0);
+        }
+
+        /* Subtle orange glow */
+        .c-sidebar::before {
           content: '';
           position: absolute;
           top: -80px;
@@ -82,18 +143,19 @@ export default function ClientSidebar() {
         }
 
         /* Header */
-        .m-sidebar-header {
+        .c-sidebar-header {
           padding: 1.75rem 1.5rem 1.5rem;
-          border-bottom: 1px solid rgba(255,255,255,0.06);
+          border-bottom: 1px solid var(--border-color);
           display: flex;
           align-items: center;
           gap: 0.6rem;
+          flex-shrink: 0;
         }
 
-        .m-sidebar-logo-icon {
+        .c-sidebar-logo-icon {
           width: 34px;
           height: 34px;
-          background: linear-gradient(135deg, #ff5000, #ff2d55);
+          background: linear-gradient(135deg, var(--accent-orange), var(--accent-pink));
           border-radius: 8px;
           display: flex;
           align-items: center;
@@ -102,19 +164,17 @@ export default function ClientSidebar() {
           box-shadow: 0 4px 14px rgba(255,80,0,0.4);
         }
 
-        .m-sidebar-logo-text {
+        .c-sidebar-logo-text {
           font-family: 'Bebas Neue', sans-serif;
           font-size: 1.35rem;
           letter-spacing: 0.08em;
-          color: #fff;
+          color: var(--text-primary);
           line-height: 1;
         }
 
-        .m-sidebar-logo-text span {
-          color: #ff5000;
-        }
+        .c-sidebar-logo-text span { color: var(--accent-orange); }
 
-        .m-sidebar-logo-sub {
+        .c-sidebar-logo-sub {
           font-family: 'Barlow', sans-serif;
           font-size: 0.6rem;
           font-weight: 600;
@@ -124,17 +184,43 @@ export default function ClientSidebar() {
           margin-top: 2px;
         }
 
+        /* Close button - mobile only */
+        .c-sidebar-close {
+          display: none;
+          position: absolute;
+          top: 1.25rem;
+          right: 1.25rem;
+          background: rgba(255,255,255,0.08);
+          border: none;
+          border-radius: 8px;
+          width: 36px;
+          height: 36px;
+          cursor: pointer;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.2s;
+          z-index: 101;
+          padding: 0;
+        }
+
+        .c-sidebar-close:hover {
+          background: rgba(255,45,85,0.2);
+        }
+
+        .c-sidebar-close svg { color: rgba(255,255,255,0.7); }
+
         /* Nav */
-        .m-sidebar-nav {
+        .c-sidebar-nav {
           flex: 1;
           padding: 1.25rem 0.85rem;
           display: flex;
           flex-direction: column;
           gap: 0.2rem;
           overflow-y: auto;
+          -webkit-overflow-scrolling: touch;
         }
 
-        .m-sidebar-section {
+        .c-sidebar-section {
           font-family: 'Barlow', sans-serif;
           font-size: 0.62rem;
           font-weight: 600;
@@ -145,13 +231,13 @@ export default function ClientSidebar() {
           margin-top: 0.5rem;
         }
 
-        .m-sidebar-link {
+        .c-sidebar-link {
           display: flex;
           align-items: center;
           gap: 0.75rem;
           padding: 0.7rem 0.9rem;
           border-radius: 8px;
-          color: rgba(255,255,255,0.45);
+          color: var(--text-secondary);
           text-decoration: none;
           font-family: 'Barlow', sans-serif;
           font-size: 0.82rem;
@@ -162,56 +248,56 @@ export default function ClientSidebar() {
           position: relative;
         }
 
-        .m-sidebar-link:hover {
+        .c-sidebar-link:hover {
           color: rgba(255,255,255,0.85);
-          background: rgba(255,255,255,0.05);
+          background: var(--hover-bg);
         }
 
-        .m-sidebar-link.active {
-          color: #fff;
-          background: rgba(255, 80, 0, 0.12);
+        .c-sidebar-link.active {
+          color: var(--text-primary);
+          background: var(--active-bg);
           border: 1px solid rgba(255, 80, 0, 0.2);
         }
 
-        .m-sidebar-link.active .m-sidebar-icon {
-          color: #ff5000;
-        }
+        .c-sidebar-link.active .c-sidebar-icon { color: var(--accent-orange); }
 
-        /* Active left bar */
-        .m-sidebar-link.active::before {
+        .c-sidebar-link.active::before {
           content: '';
           position: absolute;
           left: 0;
           top: 20%;
           bottom: 20%;
           width: 3px;
-          background: #ff5000;
+          background: var(--accent-orange);
           border-radius: 0 3px 3px 0;
           box-shadow: 0 0 8px rgba(255,80,0,0.6);
         }
 
-        .m-sidebar-icon {
+        .c-sidebar-icon {
           flex-shrink: 0;
           transition: color 0.2s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
 
-        /* Divider */
-        .m-sidebar-divider {
+        .c-sidebar-divider {
           height: 1px;
-          background: rgba(255,255,255,0.06);
+          background: var(--border-color);
           margin: 0.5rem 0.85rem;
         }
 
         /* Footer */
-        .m-sidebar-footer {
+        .c-sidebar-footer {
           padding: 1rem 0.85rem 1.25rem;
-          border-top: 1px solid rgba(255,255,255,0.06);
+          border-top: 1px solid var(--border-color);
           display: flex;
           flex-direction: column;
           gap: 0.5rem;
+          flex-shrink: 0;
         }
 
-        .m-sidebar-user {
+        .c-sidebar-user {
           display: flex;
           align-items: center;
           gap: 0.75rem;
@@ -219,36 +305,36 @@ export default function ClientSidebar() {
           border-radius: 8px;
         }
 
-        .m-sidebar-avatar {
+        .c-sidebar-avatar {
           width: 32px;
           height: 32px;
           border-radius: 50%;
-          background: linear-gradient(135deg, #ff5000, #ff2d55);
+          background: linear-gradient(135deg, var(--accent-orange), var(--accent-pink));
           display: flex;
           align-items: center;
           justify-content: center;
           font-family: 'Bebas Neue', sans-serif;
           font-size: 0.85rem;
-          color: #fff;
+          color: var(--text-primary);
           flex-shrink: 0;
           box-shadow: 0 2px 8px rgba(255,80,0,0.3);
         }
 
-        .m-sidebar-username {
+        .c-sidebar-username {
           font-family: 'Barlow', sans-serif;
           font-size: 0.82rem;
           font-weight: 600;
           color: rgba(255,255,255,0.8);
         }
 
-        .m-sidebar-role {
+        .c-sidebar-role {
           font-family: 'Barlow', sans-serif;
           font-size: 0.7rem;
           color: rgba(255,255,255,0.3);
           letter-spacing: 0.05em;
         }
 
-        .m-sidebar-logout {
+        .c-sidebar-logout {
           display: flex;
           align-items: center;
           gap: 0.65rem;
@@ -265,18 +351,86 @@ export default function ClientSidebar() {
           cursor: pointer;
           width: 100%;
           transition: all 0.2s;
+          text-align: left;
         }
 
-        .m-sidebar-logout:hover {
+        .c-sidebar-logout:hover {
           background: rgba(255,45,85,0.15);
-          color: #ff2d55;
+          color: var(--accent-pink);
+        }
+
+        .c-sidebar-logout:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        /* Scrollbar */
+        .c-sidebar-nav::-webkit-scrollbar { width: 4px; }
+        .c-sidebar-nav::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); }
+        .c-sidebar-nav::-webkit-scrollbar-thumb { 
+          background: rgba(255,80,0,0.3); 
+          border-radius: 2px; 
+        }
+        .c-sidebar-nav::-webkit-scrollbar-thumb:hover { 
+          background: rgba(255,80,0,0.5); 
+        }
+
+        /* ===== RESPONSIVE BREAKPOINTS ===== */
+        
+        /* Tablet & below: hide desktop sidebar, show mobile version */
+        @media (max-width: 1024px) {
+          .c-sidebar.desktop { display: none; }
+          .c-sidebar.mobile { display: flex; }
+          .c-sidebar-close { display: flex; }
+        }
+
+        /* Small Mobile */
+        @media (max-width: 480px) {
+          :root {
+            --sidebar-width-mobile: 100%;
+          }
+          .c-sidebar.mobile {
+            max-width: 300px;
+          }
+          .c-sidebar-header { padding: 1.5rem 1.25rem 1.25rem; }
+          .c-sidebar-logo-icon { width: 32px; height: 32px; }
+          .c-sidebar-logo-text { font-size: 1.25rem; }
+          .c-sidebar-link { 
+            padding: 0.9rem 1rem; 
+            font-size: 0.9rem; 
+            gap: 0.9rem; 
+          }
+          .c-sidebar-icon svg { width: 18px; height: 18px; }
+          .c-sidebar-avatar { width: 36px; height: 36px; font-size: 0.9rem; }
+          .c-sidebar-username { font-size: 0.85rem; }
+          .c-sidebar-role { font-size: 0.72rem; }
+          .c-sidebar-logout { padding: 0.8rem 1rem; font-size: 0.8rem; }
+        }
+
+        /* Hide toggle on desktop */
+        @media (min-width: 1025px) {
+          .c-sidebar-toggle { display: none !important; }
         }
       `}</style>
 
-      <aside className="m-sidebar">
+      {/* Mobile Close Button */}
+      <button 
+        className="c-sidebar-close"
+        onClick={onMobileClose}
+        aria-label="Close menu"
+        type="button"
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+
+      {/* Sidebar */}
+      <aside className={`c-sidebar ${isMobile ? 'mobile' : 'desktop'} ${mobileOpen ? 'mobile-open' : ''}`}>
         {/* Header / Logo */}
-        <div className="m-sidebar-header">
-          <div className="m-sidebar-logo-icon">
+        <div className="c-sidebar-header">
+          <div className="c-sidebar-logo-icon">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 18V5l12-2v13" />
               <circle cx="6" cy="18" r="3" />
@@ -284,25 +438,24 @@ export default function ClientSidebar() {
             </svg>
           </div>
           <div>
-            <div className="m-sidebar-logo-text">
-              M <span>Audio</span>
-            </div>
-            <div className="m-sidebar-logo-sub">Client Panel</div>
+            <div className="c-sidebar-logo-text">M <span>Audio</span></div>
+            <div className="c-sidebar-logo-sub">Client Panel</div>
           </div>
         </div>
 
         {/* Nav */}
-        <nav className="m-sidebar-nav">
-          <span className="m-sidebar-section">Main Menu</span>
+        <nav className="c-sidebar-nav">
+          <span className="c-sidebar-section">Main Menu</span>
           {navItems.map((item) => {
             const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`m-sidebar-link${isActive ? " active" : ""}`}
+                className={`c-sidebar-link${isActive ? " active" : ""}`}
+                onClick={handleNavClick}
               >
-                <span className="m-sidebar-icon">{item.icon}</span>
+                <span className="c-sidebar-icon">{item.icon}</span>
                 {item.label}
               </Link>
             );
@@ -310,16 +463,21 @@ export default function ClientSidebar() {
         </nav>
 
         {/* Footer */}
-        <div className="m-sidebar-footer">
-          <div className="m-sidebar-user">
-            <div className="m-sidebar-avatar">CA</div>
+        <div className="c-sidebar-footer">
+          <div className="c-sidebar-user">
+            <div className="c-sidebar-avatar">CA</div>
             <div>
-              <div className="m-sidebar-username">Client</div>
-              <div className="m-sidebar-role">Client</div>
+              <div className="c-sidebar-username">Client</div>
+              <div className="c-sidebar-role">Client</div>
             </div>
           </div>
-          <div className="m-sidebar-divider" />
-          <button className="m-sidebar-logout" onClick={handleLogout} disabled={loggingOut}>
+          <div className="c-sidebar-divider" />
+          <button 
+            className="c-sidebar-logout" 
+            onClick={handleLogout} 
+            disabled={loggingOut}
+            type="button"
+          >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
               <polyline points="16 17 21 12 16 7" />

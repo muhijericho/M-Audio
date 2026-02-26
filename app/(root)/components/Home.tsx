@@ -13,7 +13,6 @@ export default function Home() {
   const [particles, setParticles] = useState<Particle[]>([]);
 
   // Generate particles ONLY on the client to avoid SSR/hydration mismatch
-  // Math.random() on the server produces different values than on the client
   useEffect(() => {
     setParticles(
       Array.from({ length: 18 }).map(() => ({
@@ -128,7 +127,7 @@ export default function Home() {
           position: relative;
           z-index: 10;
           padding: 0 1.5rem;
-          max-width: 900px;
+          max-width: 1000px;
         }
 
         .hero-eyebrow {
@@ -160,28 +159,38 @@ export default function Home() {
 
         .hero-title {
           font-family: 'Bebas Neue', sans-serif;
-          font-size: clamp(4rem, 12vw, 9rem);
-          line-height: 0.9;
+          font-size: clamp(3.2rem, 9vw, 7rem);
+          line-height: 1;
           color: #fff;
-          margin: 0 0 0.5rem;
+          margin: 0 0 0.75rem;
           animation: fadeUp 0.8s 0.4s ease both;
           text-shadow: 0 0 80px rgba(255,80,0,0.3);
+          letter-spacing: 0.02em;
         }
 
-        .hero-title .accent {
+        .hero-title .line-1 {
+          display: block;
           -webkit-text-stroke: 2px #ff5000;
           color: transparent;
-          display: block;
         }
 
-        .hero-title .accent-solid { color: #ff5000; }
+        .hero-title .line-2 {
+          display: block;
+          color: #ff5000;
+          margin-top: -0.15em;
+        }
+
+        .hero-title .amp {
+          color: #fff;
+          -webkit-text-stroke: 0;
+        }
 
         .hero-sub {
           font-family: 'Barlow', sans-serif;
           font-size: 1.1rem;
           color: rgba(255,255,255,0.6);
-          max-width: 500px;
-          margin: 1.5rem auto 2.5rem;
+          max-width: 550px;
+          margin: 1.75rem auto 2.5rem;
           line-height: 1.6;
           animation: fadeUp 0.8s 0.6s ease both;
         }
@@ -327,6 +336,22 @@ export default function Home() {
           from { transform: scaleY(0.3); }
           to { transform: scaleY(1); }
         }
+
+        @media (max-width: 768px) {
+          .hero-title {
+            font-size: clamp(2.8rem, 11vw, 5.5rem);
+            letter-spacing: 0.01em;
+          }
+          .hero-sub {
+            font-size: 1rem;
+            padding: 0 1rem;
+          }
+          .hero-eq {
+            right: 1.5rem;
+            height: 60px;
+          }
+          .eq-bar { width: 4px; }
+        }
       `}</style>
 
       <section className="hero" id="home">
@@ -341,7 +366,7 @@ export default function Home() {
           <div className="beam beam-5" />
         </div>
 
-        {/* Particles — only rendered after client mount, so server HTML has 0 particles */}
+        {/* Particles — client-side only */}
         <div className="hero-particles">
           {particles.map((p, i) => (
             <div
@@ -357,14 +382,18 @@ export default function Home() {
         </div>
 
         <div className="hero-content">
-          <p className="hero-eyebrow">Premium Sound &amp; Lighting Rental</p>
+          <p className="hero-eyebrow">Premium Sound • Lighting • Event Production</p>
+          
           <h1 className="hero-title">
-            M <span className="accent">Audio</span>
-            <span className="accent-solid"> &amp;</span> Lights
+            <span className="line-1">M AUDIO </span>
+            <span className="line-2">LIGHTS <span className="amp">&</span> SOUNDS</span>
           </h1>
+          
           <p className="hero-sub">
-            Professional-grade sound systems, stage lighting, and full event production equipment for rent. We power your moments.
+            Professional-grade audio systems, intelligent stage lighting, and full-scale event production equipment. 
+            We power unforgettable moments with cutting-edge technology and expert support.
           </p>
+          
           <div className="hero-cta-group">
             <button
               className="hero-btn-primary"
@@ -376,7 +405,7 @@ export default function Home() {
               className="hero-btn-outline"
               onClick={() => document.getElementById("contact")?.scrollIntoView({ behavior: "smooth" })}
             >
-              Book Now
+              Get a Quote
             </button>
           </div>
         </div>

@@ -45,7 +45,7 @@ const Footer = () => {
 
       <footer className="m-footer">
         <div className="m-footer-logo">
-          M <span>Audio</span>&nbsp;Lights &amp; Sound
+          M <span>Audio</span>&nbsp;Lights &amp; Sounds
         </div>
         <p className="m-footer-copy">© {new Date().getFullYear()} M Audio Lights &amp; Sound. All rights reserved.</p>
       </footer>
